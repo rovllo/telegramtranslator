@@ -30,6 +30,7 @@ from telegram.ext import (
 )
 
 import config
+from rich import extract_rich
 from storage import Storage
 from translator import Translator
 
@@ -41,6 +42,7 @@ storage = Storage(config.DATA_FILE)
 translator = Translator(config.GEMINI_API_KEY, config.GEMINI_MODEL, config.THINKING_LEVEL)
 
 CAPTION_LIMIT = 1024
+ALBUM_LIMIT = 10
 ALBUM_WAIT = 2.5
 NO_PREVIEW = LinkPreviewOptions(is_disabled=True)
 
@@ -133,13 +135,38 @@ async def send_post(bot, chat_id: int, post: dict, markup=None) -> list[int]:
             ids.append(m.message_id)
         return ids
 
-    group = []
-    for i, item in enumerate(media):
-        cap = body if (i == 0 and fits) else None
-        group.append(INPUT_MEDIA[item["type"]](item["file_id"], caption=cap,
-                                                parse_mode=ParseMode.HTML if cap else None))
-    msgs = await bot.send_media_group(chat_id, group)
-    ids += [m.message_id for m in msgs]
+    # آلبوم: حداکثر ۱۰ مورد در هر گروه؛ گیف و ویس جداگانه ارسال می‌شوند
+    groupable = [m for m in media if m["type"] in INPUT_MEDIA]
+    singles = [m for m in media if m["type"] not in INPUT_MEDIA]
+    chunks = [groupable[i:i + ALBUM_LIMIT] for i in range(0, len(groupable), ALBUM_LIMIT)]
+    caption_used = False
+    first_id = None
+
+    for chunk in chunks:
+        if len(chunk) == 1:
+            item = chunk[0]
+            cap = body if (fits and not caption_used) else None
+            m = await getattr(bot, SEND_METHOD[item["type"]])(
+                chat_id, item["file_id"], caption=cap, parse_mode=ParseMode.HTML if cap else None)
+            sent = [m]
+        else:
+            group = []
+            for i, item in enumerate(chunk):
+                cap = body if (i == 0 and fits and not caption_used) else None
+                group.append(INPUT_MEDIA[item["type"]](item["file_id"], caption=cap,
+                                                        parse_mode=ParseMode.HTML if cap else None))
+            sent = await bot.send_media_group(chat_id, group)
+        caption_used = caption_used or fits
+        first_id = first_id or sent[0].message_id
+        ids += [m.message_id for m in sent]
+
+    for item in singles:
+        cap = body if (fits and not caption_used) else None
+        m = await getattr(bot, SEND_METHOD[item["type"]])(
+            chat_id, item["file_id"], caption=cap, parse_mode=ParseMode.HTML if cap else None)
+        caption_used = caption_used or fits
+        first_id = first_id or m.message_id
+        ids.append(m.message_id)
 
     if not fits:
         m = await bot.send_message(chat_id, body, parse_mode=ParseMode.HTML,
@@ -147,7 +174,7 @@ async def send_post(bot, chat_id: int, post: dict, markup=None) -> list[int]:
         ids.append(m.message_id)
     elif markup:
         m = await bot.send_message(chat_id, "👆 پیش‌نمایش آلبوم بالا", reply_markup=markup,
-                                   reply_parameters=ReplyParameters(message_id=msgs[0].message_id))
+                                   reply_parameters=ReplyParameters(message_id=first_id))
         ids.append(m.message_id)
     return ids
 
@@ -201,6 +228,13 @@ async def create_post(bot, admin_chat: int, messages: list[Message]):
     messages.sort(key=lambda m: m.message_id)
     media = [x for x in (extract_media(m) for m in messages) if x]
     source = next((m.text or m.caption for m in messages if (m.text or m.caption)), "") or ""
+
+    # Rich Message: متن و رسانه داخل بلوک‌ها است
+    for m in messages:
+        rich_text, rich_media = extract_rich(m)
+        media += rich_media
+        if rich_text and not source.strip():
+            source = rich_text
 
     if not media and not source.strip():
         await report_unsupported(bot, admin_chat, messages[0])
