@@ -2,8 +2,11 @@ import asyncio
 import html
 import json
 import logging
+import os
 import re
 import uuid
+from logging.handlers import RotatingFileHandler
+from pathlib import Path
 
 from telegram import (
     InlineKeyboardButton,
@@ -29,12 +32,25 @@ from telegram.ext import (
     filters,
 )
 
-import config
-from rich import extract_rich
-from storage import Storage
-from translator import Translator
+# همه مسیرهای نسبی (data.json، logs، .env) نسبت به پوشه پروژه باشند
+BASE_DIR = Path(__file__).resolve().parent
+os.chdir(BASE_DIR)
 
-logging.basicConfig(format="%(asctime)s %(levelname)s %(name)s: %(message)s", level=logging.INFO)
+import config  # noqa: E402
+from rich import extract_rich  # noqa: E402
+from storage import Storage  # noqa: E402
+from translator import Translator  # noqa: E402
+
+(BASE_DIR / "logs").mkdir(exist_ok=True)
+logging.basicConfig(
+    format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+    level=logging.INFO,
+    handlers=[
+        logging.StreamHandler(),
+        RotatingFileHandler(BASE_DIR / "logs" / "bot.log", maxBytes=1_000_000,
+                            backupCount=3, encoding="utf-8"),
+    ],
+)
 logging.getLogger("httpx").setLevel(logging.WARNING)
 log = logging.getLogger("bot")
 
@@ -458,6 +474,9 @@ async def on_error(update: object, context: ContextTypes.DEFAULT_TYPE):
 
 
 def main():
+    # شناسه پروسه برای اسکریپت‌های توقف/به‌روزرسانی
+    (BASE_DIR / "bot.pid").write_text(str(os.getpid()), encoding="ascii")
+
     app = Application.builder().token(config.BOT_TOKEN).build()
     admin = filters.User(user_id=config.ADMIN_IDS)
 
