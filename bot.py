@@ -1,5 +1,6 @@
 import asyncio
 import html
+import json
 import logging
 import re
 import uuid
@@ -172,6 +173,29 @@ async def delete_messages(bot, chat_id: int, ids: list[int]):
             pass
 
 
+_COMMON_FIELDS = {
+    "message_id", "date", "chat", "from", "forward_origin", "forward_from", "forward_from_chat",
+    "forward_from_message_id", "forward_signature", "forward_sender_name", "forward_date",
+    "is_automatic_forward", "via_bot", "has_protected_content", "author_signature",
+    "entities", "caption_entities", "reply_markup", "edit_date", "media_group_id",
+    "show_caption_above_media", "sender_chat",
+}
+
+
+async def report_unsupported(bot, admin_chat: int, msg: Message):
+    """نوع پیام پشتیبانی‌نشده را گزارش می‌کند تا بتوان پشتیبانی‌اش را اضافه کرد."""
+    data = msg.to_dict()
+    fields = sorted(k for k in data if k not in _COMMON_FIELDS)
+    extra = sorted(msg.api_kwargs.keys()) if msg.api_kwargs else []
+    log.warning("Unsupported message: %s", json.dumps(data, ensure_ascii=False, default=str))
+    text = "این پیام متن یا رسانه‌ی پشتیبانی‌شده ندارد."
+    if fields:
+        text += "\n\nفیلدهای پیام: " + ", ".join(fields)
+    if extra:
+        text += "\nفیلدهای ناشناخته: " + ", ".join(extra)
+    await bot.send_message(admin_chat, text)
+
+
 # ---------------- core flow ----------------
 async def create_post(bot, admin_chat: int, messages: list[Message]):
     messages.sort(key=lambda m: m.message_id)
@@ -179,7 +203,7 @@ async def create_post(bot, admin_chat: int, messages: list[Message]):
     source = next((m.text or m.caption for m in messages if (m.text or m.caption)), "") or ""
 
     if not media and not source.strip():
-        await bot.send_message(admin_chat, "این پیام متن یا رسانه‌ی پشتیبانی‌شده ندارد.")
+        await report_unsupported(bot, admin_chat, messages[0])
         return
 
     post = {
