@@ -1,0 +1,12 @@
+[Unit]
+Description=Telegram channel translator bot
+After=network-online.target
+
+[Service]
+WorkingDirectory=/opt/translator-bot
+ExecStart=/opt/translator-bot/venv/bin/python bot.py
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
