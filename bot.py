@@ -185,7 +185,7 @@ _COMMON_FIELDS = {
 async def report_unsupported(bot, admin_chat: int, msg: Message):
     """نوع پیام پشتیبانی‌نشده را گزارش می‌کند تا بتوان پشتیبانی‌اش را اضافه کرد."""
     data = msg.to_dict()
-    fields = sorted(k for k in data if k not in _COMMON_FIELDS)
+    fields = sorted(k for k, v in data.items() if v and k not in _COMMON_FIELDS)
     extra = sorted(msg.api_kwargs.keys()) if msg.api_kwargs else []
     log.warning("Unsupported message: %s", json.dumps(data, ensure_ascii=False, default=str))
     text = "این پیام متن یا رسانه‌ی پشتیبانی‌شده ندارد."
